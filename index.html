@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NEURON ODYSSEY · 神經元互動實驗室</title>
+<style>
+:root{--bg:#f6f7fb;--card:#fff;--tx:#1b2030;--mu:#667089;--ac:#4f46e5;--ac2:#f59e0b;--bd:#e3e6ef;--ok:#16a34a;--no:#dc2626}
+@media(prefers-color-scheme:dark){:root{--bg:#0e1220;--card:#171c2e;--tx:#e8ebf5;--mu:#97a0b8;--ac:#818cf8;--ac2:#fbbf24;--bd:#2a3150;--ok:#4ade80;--no:#f87171}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font-family:system-ui,-apple-system,"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;line-height:1.6}
+header{padding:36px 20px 20px;text-align:center}
+header h1{margin:0;font-size:clamp(26px,5vw,40px);letter-spacing:2px;color:var(--ac)}
+header p{margin:6px 0 0;color:var(--mu)}
+main{max-width:960px;margin:0 auto;padding:0 16px 48px;display:grid;gap:20px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:20px}
+h2{margin:0 0 4px;font-size:20px}
+.sub{color:var(--mu);margin:0 0 14px;font-size:14px}
+.row{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px;align-items:start}
+canvas{width:100%;max-width:340px;height:auto;border:1px solid var(--bd);border-radius:12px;display:block;margin:auto;background:var(--bg)}
+label{display:flex;justify-content:space-between;font-size:14px;margin-top:8px}
+input[type=range]{width:100%;accent-color:var(--ac)}
+.tabs{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
+button{font:inherit;border:1px solid var(--bd);background:var(--bg);color:var(--tx);padding:7px 14px;border-radius:999px;cursor:pointer}
+button:hover{border-color:var(--ac)}
+button.on{background:var(--ac);color:#fff;border-color:var(--ac)}
+.formula{font-family:ui-monospace,Menlo,Consolas,monospace;background:var(--bg);border-radius:10px;padding:10px 12px;font-size:14px;margin-top:12px;word-break:break-all}
+.msg{margin-top:10px;font-size:14px;min-height:44px}
+.q{margin:14px 0}
+.q .opts{display:grid;gap:6px;margin-top:6px}
+.q button{text-align:left;border-radius:10px}
+.q button.right{background:var(--ok);color:#fff;border-color:var(--ok)}
+.q button.wrong{background:var(--no);color:#fff;border-color:var(--no)}
+.exp{font-size:13px;color:var(--mu);margin-top:4px}
+footer{text-align:center;color:var(--mu);font-size:13px;padding-bottom:30px}
+</style>
+</head>
+<body>
+<header>
+  <h1>NEURON ODYSSEY</h1>
+  <p>神經元互動實驗室 · 從一顆神經元到小型神經網路</p>
+</header>
+<main>
+
+<!-- 1. 神經元實驗室 -->
+<section class="card">
+  <h2>① 神經元實驗室</h2>
+  <p class="sub">拖動輸入、權重與偏差，觀察加權和 z 與輸出 y 的變化；切換不同激活函數。</p>
+  <div class="row">
+    <div>
+      <div class="tabs" id="actTabs"></div>
+      <div id="sliders"></div>
+      <div class="formula" id="formula"></div>
+    </div>
+    <canvas id="c1" width="340" height="260"></canvas>
+  </div>
+</section>
+
+<!-- 2. 訓練場 -->
+<section class="card">
+  <h2>② 訓練場：單一神經元 vs 小型網路</h2>
+  <p class="sub">選擇邏輯問題與模型，按「開始訓練」。背景顏色代表模型輸出（藍＝0，橘＝1）。試試看 XOR！</p>
+  <div class="row">
+    <div>
+      <div>資料集</div>
+      <div class="tabs" id="dataTabs"></div>
+      <div>模型</div>
+      <div class="tabs" id="modeTabs"></div>
+      <label>學習率 <span id="lrv">0.5</span></label>
+      <input type="range" id="lr" min="0.05" max="1.5" step="0.05" value="0.5">
+      <div class="tabs">
+        <button id="go">▶ 開始訓練</button>
+        <button id="reset">↺ 重設</button>
+      </div>
+      <div class="msg" id="status"></div>
+    </div>
+    <canvas id="c2" width="320" height="320"></canvas>
+  </div>
+</section>
+
+<!-- 3. 測驗 -->
+<section class="card">
+  <h2>③ 互動測驗</h2>
+  <p class="sub">共 5 題，點選答案立即看到解析。</p>
+  <div id="quiz"></div>
+  <div id="score" style="font-weight:600"></div>
+</section>
+
+</main>
+<footer>Made with claude.ai · Vibe Coding 2026</footer>
+
+<script>
+const $=id=>document.getElementById(id);
+const sg=x=>1/(1+Math.exp(-x));
+const ACT={Sigmoid:sg,ReLU:x=>Math.max(0,x),Tanh:Math.tanh,Step:x=>x>=0?1:0};
+const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+/* ---------- ① 神經元實驗室 ---------- */
+let act='Sigmoid';
+const S={x1:0.8,x2:-0.4,w1:1.2,w2:0.7,b:-0.3};
+const names={x1:'輸入 x₁',x2:'輸入 x₂',w1:'權重 w₁',w2:'權重 w₂',b:'偏差 b'};
+Object.keys(ACT).forEach(k=>{
+  const btn=document.createElement('button');btn.textContent=k;
+  btn.onclick=()=>{act=k;upd1()};btn.dataset.k=k;$('actTabs').appendChild(btn);
+});
+Object.keys(S).forEach(k=>{
+  const w=document.createElement('div');
+  w.innerHTML=`<label>${names[k]} <b id="v_${k}"></b></label><input type="range" id="s_${k}" min="-2" max="2" step="0.1" value="${S[k]}">`;
+  $('sliders').appendChild(w);
+  w.querySelector('input').oninput=e=>{S[k]=+e.target.value;upd1()};
+});
+function upd1(){
+  document.querySelectorAll('#actTabs button').forEach(b=>b.classList.toggle('on',b.dataset.k===act));
+  Object.keys(S).forEach(k=>$('v_'+k).textContent=S[k].toFixed(1));
+  const z=S.w1*S.x1+S.w2*S.x2+S.b, y=ACT[act](z);
+  $('formula').innerHTML=`z = ${S.w1.toFixed(1)}×${S.x1.toFixed(1)} + ${S.w2.toFixed(1)}×${S.x2.toFixed(1)} + ${S.b.toFixed(1)} = <b>${z.toFixed(2)}</b><br>y = ${act}(z) = <b>${y.toFixed(3)}</b>`;
+  draw1(z,y);
+}
+function draw1(z,y){
+  const c=$('c1'),g=c.getContext('2d'),W=c.width,H=c.height;
+  const ymin=-1.2,ymax=act==='ReLU'?4.2:1.2,zr=4;
+  const X=v=>(v+zr)/(2*zr)*W, Y=v=>H-(v-ymin)/(ymax-ymin)*H;
+  g.clearRect(0,0,W,H);
+  g.strokeStyle=css('--bd');g.lineWidth=1;
+  g.beginPath();g.moveTo(0,Y(0));g.lineTo(W,Y(0));g.moveTo(X(0),0);g.lineTo(X(0),H);g.stroke();
+  g.strokeStyle=css('--ac');g.lineWidth=3;g.beginPath();
+  for(let i=0;i<=200;i++){const v=-zr+2*zr*i/200,p=ACT[act](v);i?g.lineTo(X(v),Y(p)):g.moveTo(X(v),Y(p))}
+  g.stroke();
+  const zc=Math.max(-zr,Math.min(zr,z));
+  g.setLineDash([4,4]);g.strokeStyle=css('--mu');g.lineWidth=1;
+  g.beginPath();g.moveTo(X(zc),H);g.lineTo(X(zc),Y(y));g.lineTo(0,Y(y));g.stroke();g.setLineDash([]);
+  g.fillStyle=css('--ac2');g.beginPath();g.arc(X(zc),Y(y),7,0,7);g.fill();
+  g.fillStyle=css('--mu');g.font='12px sans-serif';g.fillText('z',W-12,Y(0)-6);g.fillText('y',X(0)+6,12);
+}
+
+/* ---------- ② 訓練場 ---------- */
+const DS={
+  AND:[[0,0,0],[0,1,0],[1,0,0],[1,1,1]],
+  OR:[[0,0,0],[0,1,1],[1,0,1],[1,1,1]],
+  XOR:[[0,0,0],[0,1,1],[1,0,1],[1,1,0]]
+};
+let dsName='AND',mode='single',P,ep=0,run=false;
+const HID=4;
+function mkTabs(id,items,get,set){
+  const box=$(id);
+  items.forEach(([k,label])=>{
+    const b=document.createElement('button');b.textContent=label;b.dataset.k=k;
+    b.onclick=()=>{set(k);paint()};box.appendChild(b);
+  });
+  const paint=()=>box.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.k===get()));
+  paint();return paint;
+}
+const pd=mkTabs('dataTabs',Object.keys(DS).map(k=>[k,k]),()=>dsName,k=>{dsName=k;resetNet()});
+const pm=mkTabs('modeTabs',[['single','單一神經元'],['mlp','2→4→1 網路']],()=>mode,k=>{mode=k;resetNet()});
+function init(){
+  const r=()=>Math.random()*2-1;
+  P={w:[r(),r()],b:0,A:Array.from({length:HID},()=>[r()*2,r()*2]),c:Array(HID).fill(0),v:Array.from({length:HID},r),d:0};
+  ep=0;
+}
+function fwd(a,b){
+  if(mode==='single')return{p:sg(P.w[0]*a+P.w[1]*b+P.b)};
+  const h=P.A.map((u,j)=>Math.tanh(u[0]*a+u[1]*b+P.c[j]));
+  return{p:sg(h.reduce((s,x,j)=>s+x*P.v[j],P.d)),h};
+}
+function trainStep(lr){
+  for(const[a,b,t]of DS[dsName]){
+    const o=fwd(a,b),g=o.p-t;
+    if(mode==='single'){P.w[0]-=lr*g*a;P.w[1]-=lr*g*b;P.b-=lr*g}
+    else{
+      for(let j=0;j<HID;j++){
+        const gh=g*P.v[j]*(1-o.h[j]**2);
+        P.v[j]-=lr*g*o.h[j];P.A[j][0]-=lr*gh*a;P.A[j][1]-=lr*gh*b;P.c[j]-=lr*gh;
+      }
+      P.d-=lr*g;
+    }
+  }
+}
+function stats(){
+  let L=0,ok=0;
+  for(const[a,b,t]of DS[dsName]){
+    const p=fwd(a,b).p;L-=t*Math.log(p+1e-9)+(1-t)*Math.log(1-p+1e-9);ok+=(p>0.5)===(t===1);
+  }
+  return{loss:L/4,acc:ok};
+}
+function draw2(){
+  const c=$('c2'),g=c.getContext('2d'),N=40,W=c.width,cs=W/N,lo=-0.25,hi=1.25;
+  for(let i=0;i<N;i++)for(let j=0;j<N;j++){
+    const x=lo+(hi-lo)*(i+.5)/N,y=hi-(hi-lo)*(j+.5)/N,p=fwd(x,y).p;
+    g.fillStyle=`rgb(${Math.round(70+p*180)},${Math.round(110+p*30)},${Math.round(230-p*190)})`;
+    g.fillRect(i*cs,j*cs,cs+1,cs+1);
+  }
+  const X=v=>(v-lo)/(hi-lo)*W,Y=v=>W-(v-lo)/(hi-lo)*W;
+  g.font='bold 13px sans-serif';g.textAlign='center';g.textBaseline='middle';
+  for(const[a,b,t]of DS[dsName]){
+    g.fillStyle=t?'#f59e0b':'#3b82f6';g.strokeStyle='#fff';g.lineWidth=3;
+    g.beginPath();g.arc(X(a),Y(b),13,0,7);g.fill();g.stroke();
+    g.fillStyle='#fff';g.fillText(t,X(a),Y(b)+1);
+  }
+}
+function paintStatus(){
+  const s=stats();let hint='';
+  if(ep>=300){
+    if(s.acc===4)hint='✅ 全部分類正確！';
+    else if(dsName==='XOR'&&mode==='single')hint='⚠️ XOR 線性不可分：一條直線無法分開，改用「2→4→1 網路」試試。';
+    else hint='還在學習中…';
+  }
+  $('status').innerHTML=`Epoch：<b>${ep}</b>　Loss：<b>${s.loss.toFixed(3)}</b>　正確：<b>${s.acc}/4</b><br>${hint}`;
+}
+function tick(){
+  if(!run)return;
+  const lr=+$('lr').value;
+  for(let i=0;i<20;i++)trainStep(lr);
+  ep+=20;draw2();paintStatus();
+  if(ep>=6000){stop();return}
+  requestAnimationFrame(tick);
+}
+function stop(){run=false;$('go').textContent='▶ 開始訓練'}
+function resetNet(){stop();init();pd();pm();draw2();paintStatus()}
+$('go').onclick=()=>{if(run){stop();return}run=true;$('go').textContent='⏸ 暫停';tick()};
+$('reset').onclick=resetNet;
+$('lr').oninput=e=>$('lrv').textContent=(+e.target.value).toFixed(2);
+
+/* ---------- ③ 測驗 ---------- */
+const QZ=[
+ {q:'神經元的加權和 z 是如何計算的？',o:['z = w₁x₁ + w₂x₂ + b','z = x₁ × x₂','z = w₁ + w₂ + x₁','z = max(x₁, x₂)'],a:0,e:'輸入乘上各自權重後相加，再加上偏差 b。'},
+ {q:'ReLU 激活函數在 z < 0 時輸出多少？',o:['−1','0','1','z'],a:1,e:'ReLU(z) = max(0, z)，負值一律輸出 0。'},
+ {q:'Sigmoid 的輸出範圍是？',o:['(−1, 1)','[0, ∞)','(0, 1)','{0, 1}'],a:2,e:'Sigmoid 把任何實數壓縮到 0 與 1 之間，適合表示機率。'},
+ {q:'為什麼單一神經元學不會 XOR？',o:['學習率太小','資料太少','XOR 線性不可分，一條直線無法分開','激活函數錯誤'],a:2,e:'單一神經元的決策邊界是直線；加入隱藏層才能組合出非線性邊界。'},
+ {q:'訓練時「Loss 下降」代表什麼？',o:['模型預測越來越接近正確答案','資料變少了','學習率變大了','權重全部變成 0'],a:0,e:'Loss 衡量預測與標準答案的差距，下降表示模型正在學習。'}
+];
+let sc=0,done=0;
+QZ.forEach((it,i)=>{
+  const d=document.createElement('div');d.className='q';
+  d.innerHTML=`<div><b>Q${i+1}.</b> ${it.q}</div><div class="opts"></div><div class="exp"></div>`;
+  const box=d.querySelector('.opts');
+  it.o.forEach((t,k)=>{
+    const b=document.createElement('button');b.textContent=t;
+    b.onclick=()=>{
+      if(d.dataset.d)return;d.dataset.d=1;done++;
+      box.children[it.a].classList.add('right');
+      if(k===it.a)sc++;else b.classList.add('wrong');
+      d.querySelector('.exp').textContent='💡 '+it.e;
+      if(done===QZ.length)$('score').textContent=`🏁 得分：${sc} / ${QZ.length}`+(sc===5?' 太棒了，滿分！':'');
+    };
+    box.appendChild(b);
+  });
+  $('quiz').appendChild(d);
+});
+
+matchMedia('(prefers-color-scheme:dark)').addEventListener('change',()=>{upd1()});
+upd1();init();pd();pm();draw2();paintStatus();
+</script>
+</body>
+</html>
